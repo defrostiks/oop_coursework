@@ -19,7 +19,7 @@ class AnekdotProvider:
                 else:
                     return "Приносим свои извинения, анекдот удалён с сайта по требованию законодательства Российской Федерации. Попробуйте следующий" 
             else:
-                return "Анекдоты закончились"
+                return "Анекдотов на такую тему нет"
 
         except requests.exceptions.RequestException as e:
             return f"Ошибка HTTP-запроса: {e}"
@@ -37,14 +37,14 @@ class CommandHandler:
     def send_welcome(self, message):
         markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
         category_list = list(categories.keys())
-        if category_list:  
-            markup.add(telebot.types.KeyboardButton(category_list[0]))
-            for i in range(1, len(category_list), 2):
-                row = []
-                for j in range(2):
-                    if i + j < len(category_list):
-                        row.append(telebot.types.KeyboardButton(category_list[i + j]))
-                markup.add(*row)
+        category_list.append("Своя тема")
+        if category_list:
+            row = []
+            for i, category in enumerate(category_list):
+                row.append(telebot.types.KeyboardButton(category))
+                if len(row) == 2 or i == len(category_list) - 1:
+                    markup.add(*row)
+                    row = []
         self.bot.reply_to(message, "Добро пожаловать в бот несмешных анекдотов, взятых с сайта anekdot.ru. Для удобства использования были исключены анекдоты с ненормативной лексикой и провокационными темами. Для начала работы выберите категорию:", reply_markup=markup)
 
     def send_info(self, message):
@@ -118,12 +118,32 @@ class TelegramBot:
         username = message.from_user.username if message.from_user.username else "Не указано"
         print(f"User: {message.from_user.first_name} ({message.from_user.id}), Username: @{username}")
 
-        if message.text in self.categories:
-            anekdot = self.anekdot_provider.get_anekdot(self.categories[message.text])
-            self.bot.reply_to(message, anekdot)
+        if message.text == "Своя тема":
+            self.bot.reply_to(message, "На этом моменте вы сами ответственны за себя, ибо цензура заканчивается. Введите тему анекдотов:")
+            self.bot.register_next_step_handler(message, self.handle_custom_topic)
+        elif message.text in self.categories:
+            self.send_anekdot(message)
         else:
-            bad_word = random.choice(self.bad_words)
-            self.bot.reply_to(message, f"Это {bad_word} анекдот. Вы не смыслите в юморе. Лучше выберите анекдот из предложенных категорий.")
+            self.send_bad_word_reply(message)
+
+    def handle_custom_topic(self, message):
+        topic = message.text
+        url = f"https://www.anekdot.ru/tags/{topic.replace(' ', '%20')}" 
+        self.send_anekdot(message, url)
+
+
+    def send_anekdot(self, message, url=None):
+        if url is None:
+            url = self.categories[message.text] 
+        anekdot = self.anekdot_provider.get_anekdot(url)
+        if len(anekdot) > 4000:
+            self.bot.reply_to(message, "Извините, анекдот слишком длинный для отправки. Зайдите на сайт и сами почитайте.")
+        else:
+            self.bot.reply_to(message, anekdot)
+
+    def send_bad_word_reply(self, message):
+        bad_word = random.choice(self.bad_words)
+        self.bot.reply_to(message, f"Это {bad_word} анекдот. Вы не смыслите в юморе. Лучше выберите анекдот из предложенных категорий.")
 
     def run(self):
         self.bot.polling(none_stop=True)
